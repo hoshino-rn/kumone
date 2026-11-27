@@ -9,6 +9,9 @@ name: Fork build (pyncmd-local)
 #
 # The pyncmd server address is injected into Info.plist at build time:
 #   * repository variable PYNCMD_BASE_URL, or the pyncmd_base_url input below
+# With an address present, the app also routes catalog/playback requests
+# through that server by default (Settings ▸ 音源 ▸ 数据请求经 pyncmd);
+# login and playlist reads stay on the app's own session.
 # The optional access token is deliberately NOT baked into CI artifacts
 # (anyone who downloads a public fork's IPA could read it). Enter it once per
 # device in Settings ▸ 音源 ▸ pyncmd 服务器, or set PYNCMD_TOKEN in a local

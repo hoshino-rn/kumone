@@ -44,6 +44,7 @@ enum PyncmdConfiguration {
     static let endpointsKey = "settings.pyncmdEndpoints"
     static let tokenKey = "settings.pyncmdToken"
     static let lastWorkingEndpointKey = "settings.pyncmdLastWorkingEndpoint"
+    static let dataProxyKey = "settings.pyncmdDataProxy"
 
     /// The macOS app can talk to a server running on the same machine. On iOS
     /// this is the phone itself, so builds for a device should inject a LAN or
@@ -102,6 +103,31 @@ enum PyncmdConfiguration {
             .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let value = stored.isEmpty ? builtInToken : stored
         return value.isEmpty ? nil : value
+    }
+
+    /// Whether catalog and playback requests are handed to the pyncmd
+    /// service instead of this app's own upstream session.
+    ///
+    /// An explicit choice always wins. Before one exists, the proxy follows
+    /// the address: a build-time or user-entered endpoint means the app was
+    /// set up around pyncmd, while no address at all keeps it off (unit tests
+    /// and plain SwiftPM runs have no Info.plist entry).
+    static var isDataProxyEnabled: Bool {
+        if let stored = UserDefaults.standard.object(forKey: dataProxyKey) as? Bool {
+            return stored
+        }
+        return hasConfiguredEndpoint
+    }
+
+    static func setDataProxyEnabled(_ enabled: Bool) {
+        UserDefaults.standard.set(enabled, forKey: dataProxyKey)
+    }
+
+    static var hasConfiguredEndpoint: Bool {
+        if !builtInEndpointText.isEmpty { return true }
+        let stored = UserDefaults.standard.string(forKey: endpointsKey)?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return !stored.isEmpty
     }
 
     static func remember(_ endpoint: PyncmdEndpoint) {

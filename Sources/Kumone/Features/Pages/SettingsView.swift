@@ -137,9 +137,11 @@ struct SettingsView: View {
                 } header: {
                     Text("音源")
                 }
-                if settings.enabledAudioSourceIDs.contains(.pyncmd) {
-                    PyncmdSettingsSection()
-                }
+            }
+            // The pyncmd server is also the data proxy, so its address and
+            // token stay reachable even while 灰色歌曲解锁 is off.
+            if settings.enabledAudioSourceIDs.contains(.pyncmd) || PyncmdConfiguration.isDataProxyEnabled {
+                PyncmdSettingsSection()
             }
 
             Section("外观") {

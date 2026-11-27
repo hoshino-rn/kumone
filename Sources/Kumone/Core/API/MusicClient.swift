@@ -32,7 +32,7 @@ final class MusicClient: @unchecked Sendable {
             return MusicClient(configuration: configuration)
         }
         #endif
-        return MusicClient()
+        return MusicClient(allowsPyncmdProxy: true)
     }()
 
     private static let log = Logger(subsystem: "sb.moe.kumone", category: "api")
@@ -77,8 +77,13 @@ final class MusicClient: @unchecked Sendable {
     private var sessionBinding: String?
     private var authEpoch: UInt64 = 0
     private let cookieFileURL: URL?
+    /// Only the app-wide client may hand requests to pyncmd. Isolated clients
+    /// (cookie validation, logout) must keep their own session.
+    private let allowsPyncmdProxy: Bool
 
-    init(cookieDirectory: URL? = nil, configuration: URLSessionConfiguration? = nil, persistsCookies: Bool = true) {
+    init(cookieDirectory: URL? = nil, configuration: URLSessionConfiguration? = nil, persistsCookies: Bool = true,
+         allowsPyncmdProxy: Bool = false) {
+        self.allowsPyncmdProxy = allowsPyncmdProxy
         let config = configuration ?? URLSessionConfiguration.default
         config.httpShouldSetCookies = false
         config.httpCookieAcceptPolicy = .never
@@ -237,6 +242,9 @@ final class MusicClient: @unchecked Sendable {
     /// with -460, 检测到您的网络环境存在风险: the phone-number login and
     /// following an artist.
     func api(_ path: String, _ form: [String: String] = [:]) async throws -> Data {
+        if let body = pyncmdBody(path: path, mode: "api", payload: form) {
+            return try await PyncmdProxy.send(body: body, path: path)
+        }
         let authentication = authenticationState
         guard let host = Upstream.webHost, let url = URL(string: "https://\(host)/api\(path)") else {
             throw MusicAPIError.notConfigured
@@ -259,6 +267,9 @@ final class MusicClient: @unchecked Sendable {
     /// go this way unless they are refused through it.
     func eapi(_ path: String, _ payload: [String: Any] = [:],
               cookieOverrides: [String: String] = [:], absorbResponseCookies: Bool = true) async throws -> Data {
+        if let body = pyncmdBody(path: path, mode: "eapi", payload: payload, cookies: cookieOverrides) {
+            return try await PyncmdProxy.send(body: body, path: path)
+        }
         let authentication = authenticationState
         guard let webHost = Upstream.webHost, let interfaceHost = Upstream.interfaceHost,
               let url = URL(string: "https://\(interfaceHost)/eapi\(path)") else {
@@ -295,6 +306,22 @@ final class MusicClient: @unchecked Sendable {
         request.setValue(cookieHeader(extra: header, overrides: cookieOverrides), forHTTPHeaderField: "Cookie")
         request.httpBody = Self.encodeForm(form)
         return try await perform(request, authentication: authentication, absorbResponseCookies: absorbResponseCookies)
+    }
+
+    /// Encodes a request for the pyncmd service when the data proxy is on and
+    /// this path is not one of the login/playlist paths that must stay on the
+    /// app's own session. Returns nil when the request should go direct.
+    private func pyncmdBody(path: String, mode: String, payload: [String: Any],
+                            cookies: [String: String] = [:]) -> Data? {
+        guard allowsPyncmdProxy, PyncmdConfiguration.isDataProxyEnabled,
+              !PyncmdProxy.keepsDirectSession(path: path) else { return nil }
+        var envelope: [String: Any] = ["path": path, "mode": mode, "payload": payload]
+        if !cookies.isEmpty { envelope["cookies"] = cookies }
+        guard let body = try? JSONSerialization.data(withJSONObject: envelope) else {
+            Self.log.error("pyncmd envelope encoding failed for \(path, privacy: .public)")
+            return nil
+        }
+        return body
     }
 
     private func perform(_ request: URLRequest, authentication: (epoch: UInt64, binding: String?), absorbResponseCookies: Bool = true) async throws -> Data {
