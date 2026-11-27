@@ -4,6 +4,9 @@ name: Fork build (pyncmd-local)
 #   * macOS universal .app (ad-hoc signed, zipped)
 #   * iOS unsigned .ipa (sideload with AltStore / SideStore / Sideloadly)
 #
+# Every push to main that touches code (or this workflow) starts a build;
+# the workflow can also be started by hand from the Actions tab.
+#
 # The pyncmd server address is injected into Info.plist at build time:
 #   * repository variable PYNCMD_BASE_URL, or the pyncmd_base_url input below
 # The optional access token is deliberately NOT baked into CI artifacts
@@ -12,6 +15,15 @@ name: Fork build (pyncmd-local)
 # build. Both the address and token can also be changed at runtime there.
 
 on:
+  push:
+    branches: [main]
+    paths:
+      - "Sources/**"
+      - "ios/**"
+      - "Scripts/**"
+      - "Package.swift"
+      - "Package.resolved"
+      - ".github/workflows/fork-build.yml"
   workflow_dispatch:
     inputs:
       pyncmd_base_url:
@@ -32,6 +44,10 @@ on:
 
 permissions:
   contents: write
+
+concurrency:
+  group: fork-build-${{ github.ref }}
+  cancel-in-progress: true
 
 env:
   APP_NAME: Kumone
@@ -105,7 +121,7 @@ jobs:
 
   publish:
     needs: [macos, ios]
-    if: ${{ github.event.inputs.release_tag != '' }}
+    if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.release_tag != '' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v4
