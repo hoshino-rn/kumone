@@ -137,6 +137,9 @@ struct SettingsView: View {
                 } header: {
                     Text("音源")
                 }
+                if settings.enabledAudioSourceIDs.contains(.pyncmd) {
+                    PyncmdSettingsSection()
+                }
             }
 
             Section("外观") {

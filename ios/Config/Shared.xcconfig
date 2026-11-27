@@ -42,6 +42,13 @@ INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = UIInterfaceOrientationLand
 // TestFlight.xcconfig overrides it.
 KUMONE_DISTRIBUTION = sideload
 
+// Self-hosted pyncmd service baked into Info.plist. Left empty here on
+// purpose: the in-app Settings field (Settings ▸ 音源) or the CI build
+// settings fill them in. Do not put a literal `http://` in an xcconfig —
+// `//` starts a comment. CI passes these on the xcodebuild command line.
+KUMONE_PYNCMD_BASE_URL =
+KUMONE_PYNCMD_TOKEN =
+
 // ==========================================
 // Entitlements
 // ==========================================

@@ -32,6 +32,8 @@ enum AudioSourceProviderError: LocalizedError {
     case invalidURL
     case missingBitrate
     case missingStreamURL
+    case missingEndpoint
+    case serverRejected(String)
 
     var errorDescription: String? {
         switch self {
@@ -39,6 +41,8 @@ enum AudioSourceProviderError: LocalizedError {
         case .invalidURL: return "Invalid audio-source URL"
         case .missingBitrate: return "Audio-source response has no bitrate"
         case .missingStreamURL: return "Audio-source response has no stream URL"
+        case .missingEndpoint: return "No pyncmd server endpoint is configured"
+        case .serverRejected(let message): return "pyncmd server rejected the request: \(message)"
         }
     }
 }

@@ -24,6 +24,24 @@ BUILD_NUMBER="1"
 SPARKLE_FEED_URL="https://github.com/missuo/kumone/releases/latest/download/appcast.xml"
 SPARKLE_PUBLIC_ED_KEY="RHEhllstUuuVrVDCPGrbhg/8LivSzpuZB9X3u3xdV5o="
 
+# Self-hosted pyncmd service baked into Info.plist. CI (or a local build) can
+# override the address and token:
+#   PYNCMD_BASE_URL="http://192.168.1.10:8090,http://10.126.126.1:8090" \
+#   PYNCMD_TOKEN="..." Scripts/build-app.sh release
+PYNCMD_BASE_URL="${PYNCMD_BASE_URL:-http://127.0.0.1:8090}"
+PYNCMD_TOKEN="${PYNCMD_TOKEN:-}"
+
+xml_escape() {
+  local value="$1"
+  value="${value//&/&amp;}"
+  value="${value//</&lt;}"
+  value="${value//>/&gt;}"
+  value="${value//\"/&quot;}"
+  printf '%s' "$value"
+}
+PYNCMD_BASE_URL_XML="$(xml_escape "$PYNCMD_BASE_URL")"
+PYNCMD_TOKEN_XML="$(xml_escape "$PYNCMD_TOKEN")"
+
 BUILD_DIR="$ROOT/.build/app"
 APP_BUNDLE="$BUILD_DIR/$APP_NAME.app"
 GIT_COMMIT="$(git rev-parse --short HEAD 2>/dev/null || echo unknown)"
@@ -264,6 +282,9 @@ cat > "$APP_BUNDLE/Contents/Info.plist" <<PLIST
     </dict>
     <key>KumoneGitCommit</key><string>$GIT_COMMIT</string>
     <key>KumoneResourceVersion</key><string>$STEM_RESOURCES_VERSION</string>
+    <key>KumonePyncmdBaseURL</key><string>$PYNCMD_BASE_URL_XML</string>
+    <key>KumonePyncmdToken</key><string>$PYNCMD_TOKEN_XML</string>
+    <key>NSLocalNetworkUsageDescription</key><string>用于连接你本地或 EasyTier 组网内的 pyncmd 音乐服务。</string>
     <key>SUFeedURL</key><string>$SPARKLE_FEED_URL</string>
     <key>SUPublicEDKey</key><string>$SPARKLE_PUBLIC_ED_KEY</string>
     <key>SUEnableAutomaticChecks</key><true/>

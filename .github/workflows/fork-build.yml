@@ -1,0 +1,123 @@
+name: Fork build (pyncmd-local)
+
+# Manual, signing-free builds for a personal fork:
+#   * macOS universal .app (ad-hoc signed, zipped)
+#   * iOS unsigned .ipa (sideload with AltStore / SideStore / Sideloadly)
+#
+# The pyncmd server address is injected into Info.plist at build time:
+#   * repository variable PYNCMD_BASE_URL, or the pyncmd_base_url input below
+# The optional access token is deliberately NOT baked into CI artifacts
+# (anyone who downloads a public fork's IPA could read it). Enter it once per
+# device in Settings ▸ 音源 ▸ pyncmd 服务器, or set PYNCMD_TOKEN in a local
+# build. Both the address and token can also be changed at runtime there.
+
+on:
+  workflow_dispatch:
+    inputs:
+      pyncmd_base_url:
+        description: "pyncmd 地址，多个用逗号分隔；留空读取仓库变量 PYNCMD_BASE_URL"
+        required: false
+        default: ""
+        type: string
+      version:
+        description: "版本号（CFBundleShortVersionString）"
+        required: false
+        default: "0.1.0"
+        type: string
+      release_tag:
+        description: "可选：填写后创建 GitHub Release（例如 fork-1），留空只上传 artifact"
+        required: false
+        default: ""
+        type: string
+
+permissions:
+  contents: write
+
+env:
+  APP_NAME: Kumone
+  PYNCMD_BASE_URL: ${{ github.event.inputs.pyncmd_base_url || vars.PYNCMD_BASE_URL || 'http://127.0.0.1:8090' }}
+  APP_VERSION: ${{ github.event.inputs.version || '0.1.0' }}
+  APP_BUILD: ${{ github.run_number }}
+
+jobs:
+  macos:
+    # Same hosted image as ci.yml; the release workflow's `xcode-27` label is
+    # an upstream-org runner and is not available to forks.
+    runs-on: macos-26
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build unsigned universal app
+        run: |
+          ARCHES="arm64 x86_64" FETCH_MLX_METALLIB=1 \
+            MARKETING_VERSION="$APP_VERSION" BUILD_NUMBER="$APP_BUILD" \
+            PYNCMD_BASE_URL="$PYNCMD_BASE_URL" \
+            Scripts/build-app.sh release
+
+      - name: Verify baked-in endpoint
+        run: |
+          /usr/libexec/PlistBuddy -c "Print :KumonePyncmdBaseURL" \
+            ".build/app/$APP_NAME.app/Contents/Info.plist"
+
+      - name: Package
+        run: |
+          mkdir -p dist
+          ditto -c -k --keepParent ".build/app/$APP_NAME.app" \
+            "dist/$APP_NAME-$APP_VERSION-macOS-unsigned.zip"
+          ls -lh dist
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: kumone-macos-unsigned
+          path: dist/${{ env.APP_NAME }}-${{ env.APP_VERSION }}-macOS-unsigned.zip
+          if-no-files-found: error
+
+  ios:
+    runs-on: macos-26
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build unsigned IPA
+        run: |
+          xcodebuild -workspace ios/KumoneIOS.xcworkspace -scheme KumoneIOS \
+            -configuration Release -destination 'generic/platform=iOS' \
+            -derivedDataPath "$RUNNER_TEMP/ios-dd" \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO \
+            MARKETING_VERSION="$APP_VERSION" \
+            CURRENT_PROJECT_VERSION="$APP_BUILD" \
+            KUMONE_PYNCMD_BASE_URL="$PYNCMD_BASE_URL" \
+            build
+          APP="$RUNNER_TEMP/ios-dd/Build/Products/Release-iphoneos/KumoneIOS.app"
+          /usr/libexec/PlistBuddy -c "Print :KumonePyncmdBaseURL" "$APP/Info.plist"
+          mkdir -p "$RUNNER_TEMP/payload/Payload" dist
+          cp -R "$APP" "$RUNNER_TEMP/payload/Payload/"
+          (cd "$RUNNER_TEMP/payload" && \
+            zip -qry "$GITHUB_WORKSPACE/dist/$APP_NAME-$APP_VERSION-iOS-unsigned.ipa" Payload)
+          ls -lh dist
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: kumone-ios-unsigned
+          path: dist/${{ env.APP_NAME }}-${{ env.APP_VERSION }}-iOS-unsigned.ipa
+          if-no-files-found: error
+
+  publish:
+    needs: [macos, ios]
+    if: ${{ github.event.inputs.release_tag != '' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          gh release create "${{ github.event.inputs.release_tag }}" dist/* \
+            --title "$APP_NAME $APP_VERSION" \
+            --notes "Fork build with self-hosted pyncmd ($PYNCMD_BASE_URL). macOS: run xattr -cr Kumone.app after unzipping. iOS: unsigned IPA, sideload with your own signing tool."
