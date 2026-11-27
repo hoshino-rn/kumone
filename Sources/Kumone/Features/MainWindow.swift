@@ -234,6 +234,7 @@ struct MainWindow: View {
             await DownloadManager.shared.start()
             if KumonePaths.isOfflineUITest { selection = .downloaded }
             await account.bootstrap()
+            Task { await account.refreshLoginFromPyncmdIfNeeded() }
         }
         .onChange(of: settings.showDesktopLyrics) { _ in
             DesktopLyricsController.shared.sync(with: settings.showDesktopLyrics)

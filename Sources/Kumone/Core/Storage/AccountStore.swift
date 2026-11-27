@@ -1,10 +1,19 @@
 import Combine
 import Foundation
+import os.log
+
+#if os(iOS)
+    import UIKit
+#else
+    import AppKit
+#endif
 
 /// Login state and the user's library: profile, liked track IDs, playlists.
 @MainActor
 final class AccountStore: ObservableObject {
     static let shared = AccountStore()
+
+    private static let log = Logger(subsystem: "sb.moe.kumone", category: "account")
 
     @Published var profile: UserProfile?
     @Published var likedTrackIDs: Set<Int> = []
@@ -30,6 +39,7 @@ final class AccountStore: ObservableObject {
     private var playlistSyncTask: Task<Void, Never>?
     private var playlistSyncID = UUID()
     private var networkObserver: AnyCancellable?
+    private var activationObserver: NSObjectProtocol?
 
     var likedSongsPlaylist: PlaylistSummary? {
         userPlaylists.first(where: \.isLikedSongsList) ?? userPlaylists.first
@@ -52,6 +62,7 @@ final class AccountStore: ObservableObject {
             userPlaylists = snapshot.playlists
             profileBinding = snapshot.authenticationFingerprint
         }
+        observeActivation()
     }
 
     /// Called at launch and after login succeeds.
@@ -235,6 +246,83 @@ final class AccountStore: ObservableObject {
         guard UserDefaults.standard.double(forKey: key) < today else { return }
         UserDefaults.standard.set(today, forKey: key)
         await MusicAPI.refreshLogin()
+    }
+
+    private func observeActivation() {
+        #if os(iOS)
+        let name = UIApplication.didBecomeActiveNotification
+        #else
+        let name = NSApplication.didBecomeActiveNotification
+        #endif
+        activationObserver = NotificationCenter.default.addObserver(
+            forName: name, object: nil, queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in
+                await self?.refreshLoginFromPyncmdIfNeeded()
+            }
+        }
+    }
+
+    /// Keeps this device's login fresh from pyncmd's live session while the
+    /// data proxy is on. The service is authoritative for the shared login:
+    /// when both sides are on the same account, its current cookies replace a
+    /// local copy that has drifted or expired. Throttled, silent, and it never
+    /// signs in or switches accounts on its own.
+    func refreshLoginFromPyncmdIfNeeded(force: Bool = false) async {
+        guard PyncmdConfiguration.isDataProxyEnabled,
+              PyncmdConfiguration.hasConfiguredEndpoint,
+              MusicClient.shared.isLoggedIn,
+              let accountID = authenticatedAccountID ?? profile?.userId
+        else { return }
+
+        let key = "auth.lastPyncmdRefresh"
+        let now = Date().timeIntervalSince1970
+        guard force || now - UserDefaults.standard.double(forKey: key) >= 3600 else { return }
+        UserDefaults.standard.set(now, forKey: key)
+
+        do {
+            let remote = try await PyncmdProxy.fetchSession(timeout: 5)
+            guard remote.loggedIn,
+                  remote.uid == accountID,
+                  let cookies = remote.cookies,
+                  cookies["MUSIC_U"]?.isEmpty == false
+            else { return }
+
+            let current = MusicClient.shared.authenticationCookies()
+            guard cookies["MUSIC_U"] != current["MUSIC_U"]
+                    || cookies["__csrf"] != current["__csrf"]
+            else { return }
+
+            // Verify in an isolated jar first: a stale pyncmd session must not
+            // log this device out, and only the same account may be adopted.
+            let candidate = MusicClient(configuration: .ephemeral, persistsCookies: false)
+            candidate.setCookies(cookies)
+            guard let verified = try await MusicAPI.userAccount(using: candidate),
+                  verified.userId == accountID
+            else { return }
+
+            let refreshed = candidate.authenticationCookies()
+            guard refreshed["MUSIC_U"] != current["MUSIC_U"]
+                    || refreshed["__csrf"] != current["__csrf"],
+                  profile?.userId == accountID,
+                  MusicClient.shared.cookie(named: "MUSIC_U") == current["MUSIC_U"]
+            else { return }
+
+            try MusicClient.shared.replaceAuthentication(with: refreshed)
+            profileBinding = MusicClient.shared.authenticationFingerprint
+            DownloadManager.shared.activate(accountScope: offlineScope)
+            saveSnapshot()
+            Self.log.info(
+                "Refreshed login from pyncmd for account \(accountID, privacy: .public)"
+            )
+            await refreshLibrary()
+        } catch {
+            // Offline, pyncmd logged out, or a different account: silent. The
+            // manual import remains available.
+            Self.log.debug(
+                "pyncmd login refresh skipped: \(error.localizedDescription, privacy: .public)"
+            )
+        }
     }
 }
 

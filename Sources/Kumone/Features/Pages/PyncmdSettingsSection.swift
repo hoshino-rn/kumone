@@ -37,6 +37,9 @@ struct PyncmdSettingsSection: View {
                 set: { value in
                     proxyEnabled = value
                     PyncmdConfiguration.setDataProxyEnabled(value)
+                    if value {
+                        Task { await account.refreshLoginFromPyncmdIfNeeded(force: true) }
+                    }
                 }
             ))
 
@@ -63,7 +66,7 @@ struct PyncmdSettingsSection: View {
         } header: {
             Text("pyncmd 服务器")
         } footer: {
-            Text("多个地址用逗号或换行分隔，按顺序尝试。局域网可填电脑的局域网 IP；EasyTier 组网后填虚拟 IP（如 10.126.126.1:8090），外网也能访问。留空时使用构建时写入的默认地址。\n\n开启「数据请求经 pyncmd」后，Kumone 只用自己的登录获取歌单；歌曲详情、播放地址、歌词、搜索等其余请求都交给 pyncmd 服务器。pyncmd 需已登录同一账号，否则播放与账号操作会受限。")
+            Text("多个地址用逗号或换行分隔，按顺序尝试。局域网可填电脑的局域网 IP；EasyTier 组网后填虚拟 IP（如 10.126.126.1:8090），外网也能访问。留空时使用构建时写入的默认地址。\n\n开启「数据请求经 pyncmd」后，Kumone 只用自己的登录获取歌单；歌曲详情、播放地址、歌词、搜索等其余请求都交给 pyncmd 服务器。pyncmd 需已登录同一账号，否则播放与账号操作会受限。\n\n代理开启时，App 会在启动/回前台时自动从 pyncmd 刷新本地登录态（每小时最多一次）；只刷新同一账号，不会自动切换账号。")
         }
 
         Section {

@@ -126,7 +126,7 @@ enum PyncmdProxy {
     }
 
     /// Reads the service's current login so the app can adopt it.
-    static func fetchSession() async throws -> Session {
+    static func fetchSession(timeout: TimeInterval = 20) async throws -> Session {
         let endpoints = PyncmdConfiguration.endpoints()
         guard !endpoints.isEmpty else { throw PyncmdProxyError.notConfigured }
         var lastError: Error = PyncmdProxyError.notConfigured
@@ -134,7 +134,8 @@ enum PyncmdProxy {
         for endpoint in endpoints {
             do {
                 let data = try await perform(
-                    endpoint: endpoint, path: "api/session", method: "GET", body: nil
+                    endpoint: endpoint, path: "api/session", method: "GET", body: nil,
+                    timeout: timeout
                 )
                 let session = try JSONDecoder().decode(Session.self, from: data)
                 PyncmdConfiguration.remember(endpoint)
@@ -199,7 +200,8 @@ enum PyncmdProxy {
     }
 
     private static func perform(
-        endpoint: PyncmdEndpoint, path: String, method: String, body: Data?
+        endpoint: PyncmdEndpoint, path: String, method: String, body: Data?,
+        timeout: TimeInterval = 20
     ) async throws -> Data {
         guard let url = endpoint.url(path: path, query: []) else {
             throw PyncmdProxyError.invalidResponse
@@ -207,7 +209,7 @@ enum PyncmdProxy {
         var request = URLRequest(url: url)
         request.httpMethod = method
         request.httpBody = body
-        request.timeoutInterval = 20
+        request.timeoutInterval = timeout
         if body != nil {
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         }

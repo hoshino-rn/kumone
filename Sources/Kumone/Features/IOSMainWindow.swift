@@ -63,6 +63,7 @@ public struct IOSMainWindow: View {
                 if settings.autoCheckUpdates, DistributionChannel.current.allowsSelfUpdate {
                     IOSUpdater.shared.check(interactive: false)
                 }
+                Task { await account.refreshLoginFromPyncmdIfNeeded() }
             }
             .onChange(of: scenePhase) { phase in
                 guard phase == .active else { return }
